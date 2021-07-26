@@ -13,5 +13,6 @@ module mididi;
 
 public {
     import mididi.def;
+    import mididi.reader;
     import mididi.types;
 }
