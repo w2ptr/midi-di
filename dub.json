@@ -1,0 +1,9 @@
+{
+	"authors": [
+		"Wout Huynen"
+	],
+	"copyright": "Copyright © 2021, Wout Huynen",
+	"description": "Library for reading MIDI files, written in D",
+	"license": "BSL-1.0",
+	"name": "midi-di"
+}
