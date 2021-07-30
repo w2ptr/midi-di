@@ -251,7 +251,6 @@ Returns the variable that was encoded in `bytes`.
 If the variable-length int was invalid, then byteCount = 0.
 */
 int readVariableInt(const ubyte[] bytes, out size_t byteCount)
-in (bytes.length > 0)
 out (result; result >= 0 && result <= 0x0FFFFFFF)
 out (result; byteCount <= 4) {
     import std.algorithm.comparison : min;
@@ -329,6 +328,8 @@ unittest {
     assert(byteCount == 0);
 
     // too short (keeps going)
+    readVariableInt([], byteCount);
+    assert(byteCount == 0);
     readVariableInt([0x80], byteCount);
     assert(byteCount == 0);
     readVariableInt([0xCF, 0xFF], byteCount);
