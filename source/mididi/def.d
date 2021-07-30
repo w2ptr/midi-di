@@ -1,6 +1,9 @@
 /**
 `mididi.def` contains definition enums and types important to MIDI files.
 
+The implementation (and some of the documentation) is based on this specification:
+https://www.cs.cmu.edu/~music/cmsip/readings/Standard-MIDI-file-format-updated.pdf
+
 Authors:
     Wout Huynen
 */

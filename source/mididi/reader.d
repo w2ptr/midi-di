@@ -5,6 +5,9 @@ Currently, the reader is compatible with the standard MIDI format 1.0 and
 forward compatible with newer formats (in which case newer features will be
 ignored, as the specification demands).
 
+The implementation (and some of the documentation) is based on this specification:
+https://www.cs.cmu.edu/~music/cmsip/readings/Standard-MIDI-file-format-updated.pdf
+
 Authors:
     Wout Huynen
 */
@@ -342,7 +345,8 @@ unittest {
     }
 }
 
-// This test checks if the header chunk errors correctly on invalid cases.
+// This test checks if the header chunk parser errors correctly on invalid
+// cases.
 unittest {
     static void test(E = Exception)(ubyte[] bytes) {
         try {
