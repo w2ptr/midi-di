@@ -89,6 +89,156 @@ if (isInputRange!T && is(ElementType!T : const(ubyte))) {
         return HeaderChunk(cast(TrackFormat) format, tracks, division);
     }
 
+    /**
+    */
+    TrackChunk readTrackChunk() {
+        import std.conv : text;
+
+        auto chunkType = cast(const(char[])) read(4);
+        skip(4, "chunk type MTrk");
+        if (chunkType != "MTrk") {
+            throw new Exception("Not a track chunk: " ~ chunkType.idup);
+        }
+
+        immutable length = readInt32();
+        immutable endIndex = _index + length;
+
+        TrackEvent[] events;
+        ubyte previousStatus = 0;
+        bool inSysExPacket = false;
+        while (_index != endIndex) {
+            if (_index > endIndex) {
+                throw new Exception(text(
+                    "Expected track events for ", length, " bytes, but event ",
+                    events.length, " stopped at byte ", _index + 1,
+                ));
+            }
+
+            auto event = readTrackEvent(previousStatus, inSysExPacket);
+            previousStatus = event.statusByte;
+            events ~= event;
+        }
+
+        if (events.length == 0) {
+            throw new Exception("At least one track event must be present " ~
+                "in a track chunk");
+        }
+
+        if (inSysExPacket) {
+            throw new Exception("Unterminated system exclusive packet");
+        }
+
+        return TrackChunk(events);
+    }
+
+    // TODO: should probably be public?
+    private TrackEvent readTrackEvent(ubyte prevStatus, ref bool inSysExPacket) {
+        import mididi.def : getDataLength, isMIDIEvent, isMetaEvent,
+            isSysExEvent, MetaEventType, SystemMessageType;
+        import std.conv : text;
+
+        // <MTrk event> = <delta-time><event>
+        // <event> = <MIDI event> | <sysex event> | <meta event>
+        
+        // <MIDI event> = [1tttnnnn] 0xxxxxxx 0yyyyyyy
+        // if the status byte starts with a 0, use the previous one.
+        // <sysex event> = F0 <length> <data> | F7 <length> <data>
+        // <meta event> = FF <type> <length> <data>
+
+        immutable deltaTime = readVariableInt();
+        const nextByte = read(1);
+        if (nextByte.length != 1) {
+            throw new Exception("Input data ended at start of track event");
+        }
+
+        ubyte statusByte;
+        if (((nextByte[0] >> 7) & 1) == 0) {
+            if (isMIDIEvent(prevStatus)) { // running status
+                statusByte = prevStatus;
+            } else {
+                throw new Exception(text(
+                    "Running status does not work for non-midi events, but " ~
+                    "the previous status byte is one: ", prevStatus,
+                ));
+            }
+        } else {
+            skip(1, "status byte");
+            statusByte = nextByte[0];
+        }
+
+        if (!isSysExEvent(statusByte) && inSysExPacket) { // invalid
+            throw new Exception(
+                "No non-system-exclusive event may be emitted until the " ~
+                "last system exclusive event",
+            );
+        }
+
+        if (isMIDIEvent(statusByte)) {
+            immutable dataLength = getDataLength(statusByte);
+            auto varData = read(dataLength);
+            skip(dataLength, "midi event data bytes");
+            assert(varData.length == dataLength);
+            ubyte[2] data = [0, 0];
+            data[0 .. dataLength] = varData[];
+            return TrackEvent(
+                deltaTime,
+                statusByte,
+                MIDIEvent(statusByte, data),
+            );
+        } else if (isSysExEvent(statusByte)) {
+            immutable type = cast(SystemMessageType) statusByte;
+            immutable length = readVariableInt();
+            auto data = read(cast(size_t) length);
+            skip(cast(size_t) length, "system message data bytes");
+            assert(data.length == length);
+
+            if (inSysExPacket && type == SystemMessageType.systemExclusive) {
+                throw new Exception(
+                    "Cannot start a system exclusive packet while another " ~
+                    "one is not terminated yet",
+                );
+            }
+
+            if (type == SystemMessageType.systemExclusive) {
+                // start of a packet
+                inSysExPacket = true;
+            }
+            if (data.length > 0 && data[$ - 1] == 0xF7) {
+                // end of a packet
+                inSysExPacket = false;
+            }
+
+            return TrackEvent(
+                deltaTime,
+                statusByte,
+                SysExEvent(type, length, data),
+            );
+        } else if (isMetaEvent(statusByte)) {
+            immutable metaEventType = cast(MetaEventType) readInt8();
+            immutable length = readVariableInt();
+            auto data = read(cast(size_t) length);
+            skip(cast(size_t) length, "meta event data bytes");
+
+            return TrackEvent(
+                deltaTime,
+                0xFF,
+                MetaEvent(metaEventType, length, data),
+            );
+        } else {
+            throw new Exception(text(
+                "Unrecognized status byte: ", statusByte,
+            ));
+        }
+    }
+
+    /**
+    Returns:
+        whether the reader has no more content to read.
+    */
+    bool isFinished() const @nogc nothrow pure @safe {
+        return _peeked.length == 0;
+    }
+
 private:
     int readVariableInt() {
         auto bytes = read(4);
@@ -242,6 +392,196 @@ unittest {
         0x00, 0x01,
         0xFF, 0xFF,
         0b1_1100110, 40,
+    ]);
+}
+
+// This test checks if the track chunk parser works properly (example taken
+// from paper, see module comment).
+unittest {
+    import mididi.def : ChannelMessageType, MetaEventType;
+
+    auto reader = MIDIReader!(ubyte[])([
+        'M', 'T', 'r', 'k', // chunk type
+        0x00, 0x00, 0x00, 0x3B, // length (59)
+
+        0x00, 0xFF, 0x58, 0x04, 0x04, 0x02, 0x18, 0x08, // time signature (0)
+        0x00, 0xFF, 0x51, 0x03, 0x07, 0xA1, 0x20, // tempo
+        0x00, 0xC0, 0x05,
+        0x00, 0xC1, 0x2E,
+        0x00, 0xC2, 0x46, // (4)
+        0x00, 0x92, 0x30, 0x60, // (5)
+        0x40, 0x3C, 0x60, // running status (6)
+        0x60, 0x91, 0x43, 0x40,
+        0x60, 0x90, 0x4C, 0x20,
+        0x81, 0x40, 0x82, 0x30, 0x40, // two-byte delta-time (9)
+        0x00, 0x3C, 0x40, // running status
+        0x00, 0x81, 0x43, 0x40,
+        0x00, 0x80, 0x4C, 0x40,
+        0x00, 0xFF, 0x2F, 0x00, // end of track
+    ]);
+    auto track = reader.readTrackChunk();
+
+    assert(reader.isFinished());
+    assert(track.events.length == 14);
+
+    const event1 = track.events[0];
+    assert(event1.deltaTime == 0x00);
+    assert(event1.asMIDIEvent() is null);
+    assert(event1.asSysExEvent() is null);
+    const metaEvent1 = event1.asMetaEvent();
+    assert(metaEvent1 !is null);
+    assert(metaEvent1.type == MetaEventType.timeSignature);
+    assert(metaEvent1.data == [0x04, 0x02, 0x18, 0x08]);
+    
+    const event2 = track.events[4];
+    assert(event2.deltaTime == 0x00);
+    const midiEvent2 = event2.asMIDIEvent();
+    assert(midiEvent2 !is null);
+    assert(midiEvent2.getChannelMessageType() == ChannelMessageType.programChange);
+    assert(midiEvent2.getChannelNumber() == 2);
+
+    const event3 = track.events[5];
+    assert(event3.deltaTime == 0x00);
+    const midiEvent3 = event3.asMIDIEvent();
+    assert(midiEvent3 !is null);
+    assert(midiEvent3.getChannelMessageType() == ChannelMessageType.noteOn);
+    assert(midiEvent3.getChannelNumber() == 2);
+
+    const event4 = track.events[6];
+    assert(event4.deltaTime == 0x40);
+    const midiEvent4 = event4.asMIDIEvent();
+    assert(midiEvent4 !is null);
+
+    assert(midiEvent4.getChannelMessageType() == midiEvent3.getChannelMessageType());
+    assert(midiEvent4.getChannelNumber() == midiEvent3.getChannelNumber());
+
+    const event5 = track.events[9];
+    assert(event5.deltaTime == 192);
+}
+
+// This test checks system exclusive messages.
+// See the test below for invalid system exclusive messages.
+unittest {
+    static void testNoErrors(ubyte[] bytes) {
+        ubyte[4] start = [
+            'M', 'T', 'r', 'k'
+        ];
+        auto reader = MIDIReader!(ubyte[])(start ~ bytes);
+        cast(void) reader.readTrackChunk();
+        assert(reader.isFinished());
+    }
+
+    testNoErrors([
+        0, 0, 0, 13, // length
+        0x00, 0xF0, 0x01, 0xFF,
+        0x00, 0xF7, 0x02, 0xFF, 0xF7,
+        0x00, 0xFF, 0x2F, 0x00, // end of track
+    ]);
+    testNoErrors([
+        0, 0, 0, 8,
+        0x00, 0xF0, 0x01, 0xF7,
+        0x00, 0xFF, 0x2F, 0x00,
+    ]);
+    
+    // system messages
+    testNoErrors([
+        0, 0, 0, 6,
+        0x00, 0xFA,
+        0x00, 0xFF, 0x2F, 0x00, // end of track
+    ]);
+}
+
+// This test checks whether the functions correctly differentiate between
+// control change messages and channel mode messages.
+// (Arguably, this test could also be in `mididi.def`.)
+unittest {
+    import mididi.def : isChannelModeMessage, isChannelVoiceMessage;
+
+    auto reader = MIDIReader!(ubyte[])([
+        'M', 'T', 'r', 'k',
+        0, 0, 0, 12,
+        0x00, 0xB4, 0x77, 0x7F, // channel voice message
+        0x00, 0xB4, 0x78, 0x00, // mode voice message
+        0x00, 0xFF, 0x2F, 0x00,
+    ]);
+    auto track = reader.readTrackChunk();
+
+    const midiEvent1 = track.events[0].asMIDIEvent();
+    assert(midiEvent1.isChannelMessage());
+    assert(isChannelVoiceMessage(midiEvent1.statusByte, midiEvent1.data));
+    assert(!isChannelModeMessage(midiEvent1.statusByte, midiEvent1.data));
+    assert(midiEvent1.getChannelNumber() == 4);
+
+    const midiEvent2 = track.events[1].asMIDIEvent();
+    assert(midiEvent2.isChannelMessage());
+    assert(!isChannelVoiceMessage(midiEvent2.statusByte, midiEvent2.data));
+    assert(isChannelModeMessage(midiEvent2.statusByte, midiEvent2.data));
+    assert(midiEvent2.getChannelNumber() == 4);
+}
+
+// This test checks if the track chunk parser errors correctly on invalid
+// cases when parsing individual track chunks.
+unittest {
+    static void test(E = Exception)(ubyte[] bytes) {
+        auto reader = MIDIReader!(ubyte[])(bytes);
+
+        try {
+            cast(void) reader.readTrackChunk();
+            assert(false, "Invalid track chunk but no exception thrown");
+        } catch (Exception e) {}
+    }
+
+    // incomplete
+    test([]);
+    test(['M', 'T', 'r', 'k']);
+    test(['M', 'T', 'r', 'k', 0x00]);
+
+    // there must be >= 1 event
+    test(['M', 'T', 'r', 'k', 0, 0, 0, 0]);
+
+    // fallthrough only works for midi events, not for other events
+    test([
+        'M', 'T', 'r', 'k',
+        0, 0, 0, 5,
+        0xFF, 0x01, 0x00, // e.g. for a meta event
+        0x00, 0x00,
+    ]);
+
+    // fail on invalid sysex messages
+    test([
+        'M', 'T', 'r', 'k',
+        0, 0, 0, 13,
+        0x00, 0xF0, 0x01, 0xFF,
+        0x00, 0xF7, 0x02, 0xFF, 0xFF,
+        0x00, 0xFF, 0x2F, 0x00, // end of track
+    ]);
+    test([
+        'M', 'T', 'r', 'k',
+        0, 0, 0, 4,
+        0x00, 0xF0, 0x01, 0xFF,
+    ]);
+    test([
+        'M', 'T', 'r', 'k',
+        0, 0, 0, 12,
+        0x00, 0xF0, 0x01, 0xFF,
+        0x00, 0xF0, 0x01, 0xF7,
+        0x00, 0xFF, 0x2F, 0x00, // end of track
+    ]);
+
+    // wrong length for chunk (too long)
+    test([
+        'M', 'T', 'r', 'k',
+        0x00, 0x00, 0x00, 20, // (1 too long)
+        0x00, 0xFF, 0x58, 0x04, 0x04, 0x02, 0x18, 0x08,
+        0x00, 0xFF, 0x51, 0x03, 0x07, 0xA1, 0x20,
+        0x00, 0xFF, 0x2F, 0x00, // end of track
+    ]);
+
+    // wrong length for certain messages
+    test([
+        'M', 'T', 'r', 'k',
+        0x00, 0x00, 0x00, 0x04,
+        0x00, 0xF2, 0x00, // "song position pointer"
     ]);
 }
 

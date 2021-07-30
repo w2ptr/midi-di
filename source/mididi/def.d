@@ -80,6 +80,56 @@ bool isSystemMessage(ubyte statusByte) @nogc nothrow pure @safe {
 }
 
 /**
+Returns:
+    how many data bytes should be read for the message with status byte
+    `statusByte`
+Throws:
+    `Exception` if `statusByte` is not a MIDI event
+*/
+size_t getDataLength(ubyte statusByte) pure @safe {
+    import std.conv : text;
+
+    if (isChannelMessage(statusByte)) {
+        immutable t = cast(ChannelMessageType) (statusByte >> 4);
+        with (ChannelMessageType) {
+            if (t == programChange || t == channelPressure) {
+                return 1;
+            }
+
+            if (
+                t == noteOn || t == noteOff || t == polyphonicKeyPressure ||
+                t == controlChangeOrMode || t == pitchWheelChange
+            ) {
+                return 2;
+            }
+        }
+    } else if (isSystemMessage(statusByte)) {
+        immutable t = cast(SystemMessageType) statusByte;
+        with (SystemMessageType) {
+            if (
+                t == tuneRequest || t == timingClock || t == start ||
+                t == continue_ || t == stop || t == activeSensing
+            ) {
+                return 0;
+            }
+
+            if (t == songSelect) {
+                return 1;
+            }
+
+            if (t == songPositionPointer) {
+                return 2;
+            }
+        }
+    }
+
+    throw new Exception(text(
+        "Invalid channel message type for status byte ",
+        statusByte,
+    ));
+}
+
+/**
 `ChannelMessageType` enumerates the possible types of channel messages.
 
 The underlying value of this enumeration is the four upper bits of the status
