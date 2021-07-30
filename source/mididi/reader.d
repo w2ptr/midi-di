@@ -316,33 +316,29 @@ unittest {
         return MIDIReader!(ubyte[])(prefix ~ info);
     }
 
-    try {
-        auto r1 = create([
-            0x00, 0x00, // format 0
-            0x00, 0x01, // 1 track
-            0x00, 0x60, // division: 0, 0, 0x60
-        ]);
-        auto h1 = r1.readHeaderChunk();
-        assert(h1.trackFormat == TrackFormat.single);
-        assert(h1.nTracks == 1);
-        assert(h1.division.getFormat() == 0);
-        assert(h1.division.rawValue == 0x0060);
-        assert(h1.division.getTicksPerQuarterNote() == 0x60);
+    auto r1 = create([
+        0x00, 0x00, // format 0
+        0x00, 0x01, // 1 track
+        0x00, 0x60, // division: 0, 0, 0x60
+    ]);
+    auto h1 = r1.readHeaderChunk();
+    assert(h1.trackFormat == TrackFormat.single);
+    assert(h1.nTracks == 1);
+    assert(h1.division.getFormat() == 0);
+    assert(h1.division.rawValue == 0x0060);
+    assert(h1.division.getTicksPerQuarterNote() == 0x60);
 
-        auto r2 = create([
-            0x00, 0x01, // format 1
-            0xFF, 0xFF, // 65536 tracks
-            0b1_1100111, 40, // division: 1, -25, 40
-        ]);
-        auto h2 = r2.readHeaderChunk();
-        assert(h2.trackFormat == TrackFormat.simultaneous);
-        assert(h2.nTracks == ushort.max);
-        assert(h2.division.getFormat() == 1);
-        assert(h2.division.getNegativeSMPTEFormat() == -25);
-        assert(h2.division.getTicksPerFrame() == 40);
-    } catch (Exception e) {
-        assert(false, e.message);
-    }
+    auto r2 = create([
+        0x00, 0x01, // format 1
+        0xFF, 0xFF, // 65536 tracks
+        0b1_1100111, 40, // division: 1, -25, 40
+    ]);
+    auto h2 = r2.readHeaderChunk();
+    assert(h2.trackFormat == TrackFormat.simultaneous);
+    assert(h2.nTracks == ushort.max);
+    assert(h2.division.getFormat() == 1);
+    assert(h2.division.getNegativeSMPTEFormat() == -25);
+    assert(h2.division.getTicksPerFrame() == 40);
 }
 
 // This test checks if the header chunk parser errors correctly on invalid
