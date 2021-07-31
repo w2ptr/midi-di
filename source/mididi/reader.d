@@ -19,7 +19,29 @@ module mididi.reader;
 // https://www.boost.org/LICENSE_1_0.txt)
 
 import mididi.types;
+import std.stdio : File;
 import std.range.primitives : isInputRange, ElementType;
+
+/**
+`readMIDIFile()` reads a MIDI file, of course.
+
+This essentially does the same as `MIDIReader!(ubyte[]).readFile()`, but is
+given for convenience.
+
+It has two overloads, one for `std.stdio.File` objects, and one if you have the
+file path only.
+*/
+MIDI readMIDIFile()(File file) {
+    // TODO: could also do this byChunk() to potentially use less memory
+    auto bytes = file.rawRead(new ubyte[cast(size_t) file.size]);
+    auto reader = MIDIReader!(ubyte[])(bytes);
+    return reader.readFile();
+}
+/// ditto
+MIDI readMIDIFile()(string path) {
+    return readMIDIFile(File(path));
+}
+
 /**
 `MIDIReader` is the raw MIDI reader object.
 
@@ -35,6 +57,51 @@ if (isInputRange!T && is(ElementType!T : const(ubyte))) {
     ///
     this(T range) {
         _input = range;
+    }
+
+    /**
+    Reads the entire input and returns the data in a `MIDI` object.
+
+    Throws:
+        `Exception` if all chunks are read and the input is not empty yet;
+        `Exception` if the header chunk or any of the track chunks is invalid
+    */
+    MIDI readFile() {
+        import std.conv : text;
+
+        auto headerChunk = readHeaderChunk();
+        auto trackChunks = new TrackChunk[headerChunk.nTracks];
+        foreach (i; 0 .. headerChunk.nTracks) {
+            trackChunks[i] = readTrackChunk();
+        }
+
+        if (!isFinished()) { // file not empty yet
+            throw new Exception(text(
+                "Expected ",
+                headerChunk.nTracks,
+                " track chunks from the header, but the file contains more",
+            ));
+        }
+
+        return MIDI(headerChunk, trackChunks);
+    }
+
+    /**
+    Reads a chunk from the input (meaning, it can either read a header chunk or
+    a track chunk).
+
+    Throws:
+        `Exception` if the chunk is invalid
+    */
+    Chunk readChunk() {
+        const chunkType = cast(char[]) read(4);
+        if (chunkType == "MTrk") {
+            return Chunk(readHeaderChunk());
+        } else if (chunkType == "MThd") {
+            return Chunk(readTrackChunk());
+        } else {
+            throw new Exception("Invalid chunk type: " ~ chunkType.idup);
+        }
     }
 
     /**
@@ -302,7 +369,148 @@ private:
     ubyte[] _peeked;
 }
 
+/// Reads a complete file with a single track of a single event
+unittest {
+    import mididi.def : MetaEventType, TrackFormat;
+
+    auto reader = MIDIReader!(ubyte[])([
+        'M', 'T', 'h', 'd', // header chunk
+        0x00, 0x00, 0x00, 0x06, // length
+        0x00, 0x01, // format 1
+        0x00, 0x02, // 2 tracks
+        0b0_0000000, 0x60, // time division: 0, 0, 0x60
+
+        'M', 'T', 'r', 'k', // track chunk 1
+        0, 0, 0, 4, // length = 4
+        0x00, 0xFF, 0x2F, 0x00, // end of track
+
+        'M', 'T', 'r', 'k', // track chunk 2
+        0, 0, 0, 4, // length = 4
+        0x00, 0xFF, 0x2F, 0x00, // end of track
+    ]);
+    auto midi = reader.readFile();
+
+    assert(midi.headerChunk.trackFormat == TrackFormat.simultaneous);
+    assert(midi.headerChunk.nTracks == 2);
+    assert(midi.headerChunk.division.getFormat() == 0);
+    assert(midi.headerChunk.division.getTicksPerQuarterNote() == 0x0060);
+
+    assert(midi.trackChunks.length == 2);
+    assert(midi.trackChunks[0].events.length == 1);
+    const event = midi.trackChunks[0].events[0];
+    assert(event.asMetaEvent().type == MetaEventType.endOfTrack);
+}
+
+/// Reads a file that has bytes past the last chunk, which is disallowed.
+unittest {
+    auto reader = MIDIReader!(ubyte[])([
+        'M', 'T', 'h', 'd',
+        0x00, 0x00, 0x00, 0x06, // length
+        0x00, 0x00, // format: 0
+        0x00, 0x01, // nTracks: 1
+        0b0_0000000, 0x60, // time division: 0, 0, 0x60
+
+        'M', 'T', 'r', 'k',
+        0, 0, 0, 4,
+        0x00, 0xFF, 0x2F, 0x00,
+
+        'M', 'T', 'r', 'k', // too many chunks
+        0, 0, 0, 4,
+        0x00, 0xFF, 0x2F, 0x00,
+    ]);
+
+    try {
+        const _ = reader.readFile();
+        assert(false, "File is invalid, but no exception was thrown");
+    } catch (Exception e) {}
+}
+
 private:
+
+// This test checks if the reader works for a file with multiple tracks
+// (example taken from paper, see module comment).
+unittest {
+    import mididi.def : ChannelMessageType, MetaEventType, TrackFormat;
+
+    auto reader = MIDIReader!(ubyte[])([
+        0x4D, 0x54, 0x68, 0x64, // MThd
+        0x00, 0x00, 0x00, 0x06, // chunk length
+        0x00, 0x01, // format 1
+        0x00, 0x04, // four tracks
+        0x00, 0x60, // 96 per quarter note
+
+        // First, the track chunk for the time signature/tempo track. Its
+        // header, followed by the events:
+        0x4D, 0x54, 0x72, 0x6B, // MTrk
+        0x00, 0x00, 0x00, 0x14, // chunk length (20)
+        // Delta-Time Event Comments
+        0x00, 0xFF, 0x58, 0x04, 0x04, 0x02, 0x18, 0x08, // time signature
+        0x00, 0xFF, 0x51, 0x03, 0x07, 0xA1, 0x20, // tempo
+        0x83, 0x00, 0xFF, 0x2F, 0x00, // end of track
+
+        // Then, the track chunk for the first music track. The MIDI convention
+        // for note on/off running status is used in this example:
+        0x4D, 0x54, 0x72, 0x6B, // MTrk
+        0x00, 0x00, 0x00, 0x10, // chunk length (16)
+        // Delta-Time Event Comments
+        0x00, 0xC0, 0x05,
+        0x81, 0x40, 0x90, 0x4C, 0x20,
+        0x81, 0x40, 0x4C, 0x00, // Running status: note on, vel=0
+        0x00, 0xFF, 0x2F, 0x00, // end of track
+
+        // Then, the track chunk for the second music track:
+        0x4D, 0x54, 0x72, 0x6B, // MTrk
+        0x00, 0x00, 0x00, 0x0F, // chunk length (15)
+        // Delta-Time Event Comments
+        0x00, 0xC1, 0x2E,
+        0x60, 0x91, 0x43, 0x40,
+        0x82, 0x20, 0x43, 0x00, // running status
+        0x00, 0xFF, 0x2F, 0x00, // end of track
+
+        // Then, the track chunk for the third music track:
+        0x4D, 0x54, 0x72, 0x6B, // MTrk
+        0x00, 0x00, 0x00, 0x15, // chunk length (21)
+        // Delta-Time Event Comments
+        0x00, 0xC2, 0x46,
+        0x00, 0x92, 0x30, 0x60,
+        0x00, 0x3C, 0x60, // running status
+        0x83, 0x00, 0x30, 0x00, // two-byte delta-time, running status
+        0x00, 0x3C, 0x00, // running status
+        0x00, 0xFF, 0x2F, 0x00, // end of track
+    ]);
+    auto midi = reader.readFile();
+
+    const headerChunk = midi.headerChunk;
+    assert(headerChunk.nTracks == 4);
+    assert(headerChunk.trackFormat == TrackFormat.simultaneous);
+    assert(headerChunk.division.getFormat() == 0);
+    assert(midi.trackChunks.length == headerChunk.nTracks);
+
+    const track1 = midi.trackChunks[0];
+    assert(track1.events.length == 3);
+    assert(track1.events[2].asMetaEvent() !is null);
+    assert(track1.events[2].asMetaEvent().type == MetaEventType.endOfTrack);
+
+    const track2 = midi.trackChunks[1];
+    assert(track2.events.length == 4);
+
+    const track3 = midi.trackChunks[2];
+    assert(track3.events.length == 4);
+
+    const track4 = midi.trackChunks[3];
+    assert(track4.events.length == 6);
+
+    const event43 = track4.events[2].asMIDIEvent();
+    assert(event43 !is null);
+    assert(event43.isChannelMessage());
+    assert(event43.getChannelMessageType() == ChannelMessageType.noteOn);
+
+    assert(track4.events[3].deltaTime == 384);
+    const event44 = track4.events[3].asMIDIEvent();
+    assert(event44 !is null);
+    assert(event44.isChannelMessage());
+    assert(event44.getChannelMessageType() == ChannelMessageType.noteOn);
+}
 
 // This test checks if the header chunk parser works properly.
 unittest {
@@ -501,7 +709,7 @@ unittest {
         'M', 'T', 'r', 'k',
         0, 0, 0, 12,
         0x00, 0xB4, 0x77, 0x7F, // channel voice message
-        0x00, 0xB4, 0x78, 0x00, // mode voice message
+        0x00, 0xB4, 0x78, 0x00, // channel mode message
         0x00, 0xFF, 0x2F, 0x00,
     ]);
     auto track = reader.readTrackChunk();

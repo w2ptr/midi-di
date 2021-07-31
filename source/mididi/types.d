@@ -17,6 +17,72 @@ module mididi.types;
 import mididi.def;
 
 /**
+`MIDI` represents the data of a complete MIDI file.
+*/
+struct MIDI {
+    ///
+    HeaderChunk headerChunk;
+
+    ///
+    TrackChunk[] trackChunks;
+}
+
+/**
+A more general chunk type, which is essentially a tagged union of `HeaderChunk`
+and `TrackChunk`.
+
+Use `asHeaderChunk()` or `asTrackChunk()` to find out which one this is.
+*/
+struct Chunk {
+    ///
+    this(HeaderChunk chunk) @nogc nothrow pure @trusted {
+        _type = Type.headerChunk;
+        _headerChunk = chunk;
+    }
+    /// ditto
+    this(TrackChunk chunk) @nogc nothrow pure @trusted {
+        _type = Type.trackChunk;
+        _trackChunk = chunk;
+    }
+
+    /**
+    Returns:
+        a pointer to the header chunk or `null` if this chunk is not a header
+        chunk
+    */
+    inout(HeaderChunk)* asHeaderChunk() inout return @nogc nothrow pure @safe {
+        if (_type == Type.headerChunk) {
+            return (() inout @trusted => &_headerChunk)();
+        }
+        return null;
+    }
+
+    /**
+    Returns:
+        a pointer to the track chunk or `null` if this chunk is not a track
+        chunk
+    */
+    inout(TrackChunk)* asTrackChunk() inout return @nogc nothrow pure @safe {
+        if (_type == Type.trackChunk) {
+            return (() inout @trusted => &_trackChunk)();
+        }
+        return null;
+    }
+
+private:
+    enum Type {
+        headerChunk,
+        trackChunk,
+    }
+
+    Type _type;
+    union {
+        HeaderChunk _headerChunk;
+        TrackChunk _trackChunk;
+    }
+}
+
+/**
 `HeaderChunk` is the first chunk in a MIDI file. It gives information about the
 format of the other chunks.
 */
