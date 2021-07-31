@@ -19,13 +19,13 @@ module mididi.reader;
 // https://www.boost.org/LICENSE_1_0.txt)
 
 import mididi.types;
-import std.stdio : File;
 import std.range.primitives : isInputRange, ElementType;
+import std.stdio : File;
 
 /**
 `readMIDIFile()` reads a MIDI file, of course.
 
-This essentially does the same as `MIDIReader!(ubyte[]).readFile()`, but is
+This essentially does the same as `MIDIReader!(ubyte[]).readMIDI()`, but is
 given for convenience.
 
 It has two overloads, one for `std.stdio.File` objects, and one if you have the
@@ -35,7 +35,7 @@ MIDI readMIDIFile()(File file) {
     // TODO: could also do this byChunk() to potentially use less memory
     auto bytes = file.rawRead(new ubyte[cast(size_t) file.size]);
     auto reader = MIDIReader!(ubyte[])(bytes);
-    return reader.readFile();
+    return reader.readMIDI();
 }
 /// ditto
 MIDI readMIDIFile()(string path) {
@@ -66,7 +66,7 @@ if (isInputRange!T && is(ElementType!T : const(ubyte))) {
         `Exception` if all chunks are read and the input is not empty yet;
         `Exception` if the header chunk or any of the track chunks is invalid
     */
-    MIDI readFile() {
+    MIDI readMIDI() {
         import std.conv : text;
 
         auto headerChunk = readHeaderChunk();
@@ -389,7 +389,7 @@ unittest {
         0, 0, 0, 4, // length = 4
         0x00, 0xFF, 0x2F, 0x00, // end of track
     ]);
-    auto midi = reader.readFile();
+    auto midi = reader.readMIDI();
 
     assert(midi.headerChunk.trackFormat == TrackFormat.simultaneous);
     assert(midi.headerChunk.nTracks == 2);
@@ -421,7 +421,7 @@ unittest {
     ]);
 
     try {
-        const _ = reader.readFile();
+        const _ = reader.readMIDI();
         assert(false, "File is invalid, but no exception was thrown");
     } catch (Exception e) {}
 }
@@ -479,7 +479,7 @@ unittest {
         0x00, 0x3C, 0x00, // running status
         0x00, 0xFF, 0x2F, 0x00, // end of track
     ]);
-    auto midi = reader.readFile();
+    auto midi = reader.readMIDI();
 
     const headerChunk = midi.headerChunk;
     assert(headerChunk.nTracks == 4);
