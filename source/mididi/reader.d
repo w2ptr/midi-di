@@ -281,18 +281,19 @@ if (isInputRange!T && is(ElementType!T : const(ubyte))) {
             return TrackEvent(
                 deltaTime,
                 statusByte,
-                SysExEvent(type, length, data),
+                SysExEvent(type, data),
             );
         } else if (isMetaEvent(statusByte)) {
             immutable metaEventType = cast(MetaEventType) readInt8();
             immutable length = readVariableInt();
             auto data = read(cast(size_t) length);
             skip(cast(size_t) length, "meta event data bytes");
+            assert(data.length == length);
 
             return TrackEvent(
                 deltaTime,
                 0xFF,
-                MetaEvent(metaEventType, length, data),
+                MetaEvent(metaEventType, data),
             );
         } else {
             throw new Exception(text(

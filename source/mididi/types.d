@@ -383,9 +383,6 @@ struct SysExEvent {
     SystemMessageType type;
 
     ///
-    int length;
-
-    ///
     ubyte[] data;
 }
 
@@ -399,9 +396,6 @@ See Also:
 struct MetaEvent {
     ///
     MetaEventType type;
-
-    ///
-    int length;
 
     // is usually 1-6 bytes, could also be more data depending if it's a
     // certain kind of meta event
