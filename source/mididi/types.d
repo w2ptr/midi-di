@@ -111,8 +111,36 @@ struct HeaderChunk {
 /**
 */
 struct TimeDivision {
-    ///
-    ushort rawValue;
+    /**
+    `fromRawValue` creates a `TimeDivision` object from the raw encoding of
+    this property in the header chunk.
+    */
+    static TimeDivision fromRawValue(ushort rawValue) @nogc nothrow pure @safe {
+        return TimeDivision(rawValue);
+    }
+    /**
+    */
+    static TimeDivision fromFormat0(ushort ticksPerQuarterNote) @nogc nothrow pure @safe
+    in (ticksPerQuarterNote <= 0x7FFF) {
+        return TimeDivision(ticksPerQuarterNote);
+    }
+    /**
+    */
+    static TimeDivision fromFormat1(byte negativeSMPTEFormat, ubyte ticksPerFrame) @nogc nothrow pure @safe
+    in (
+        negativeSMPTEFormat == -24 || negativeSMPTEFormat == -25 ||
+        negativeSMPTEFormat == -29 || negativeSMPTEFormat == -30
+    ) {
+        immutable byte2 = (() @trusted => *cast(ubyte*) &negativeSMPTEFormat)();
+        return TimeDivision(
+            (1 << 15) | (byte2 << 8) | ticksPerFrame,
+        );
+    }
+
+    /// (read-only)
+    @property ushort rawValue() const @nogc nothrow pure @safe {
+        return _rawValue;
+    }
 
     /**
     Returns the time division's format. If the format is `0`, then use
@@ -125,7 +153,7 @@ struct TimeDivision {
     */
     int getFormat() const @nogc nothrow pure @safe
     out (result; result == 0 || result == 1) {
-        return (rawValue >> 15) & 1;
+        return (_rawValue >> 15) & 1;
     }
 
     /**
@@ -135,7 +163,7 @@ struct TimeDivision {
     ushort getTicksPerQuarterNote() const @nogc nothrow pure @safe
     in (this.getFormat() == 0) {
         // get bits 14 through 0
-        return rawValue;
+        return _rawValue;
     }
 
     /**
@@ -148,7 +176,7 @@ struct TimeDivision {
     byte getNegativeSMPTEFormat() const @nogc nothrow pure @safe
     in (this.getFormat() == 1) {
         // get bits 14 through 8
-        immutable bits = cast(ubyte) ((rawValue >> 8) & 0b01111111);
+        immutable bits = cast(ubyte) ((_rawValue >> 8) & 0b01111111);
         // sign extend because it's in 2's complement
         immutable value = bits | ((bits & 0b01000000) << 1);
         // interpret as 2's complement
@@ -164,8 +192,14 @@ struct TimeDivision {
     ubyte getTicksPerFrame() const @nogc nothrow pure @safe
     in (this.getFormat() == 1) {
         // get bits 7 through 0
-        return rawValue & 0b11111111;
+        return _rawValue & 0b11111111;
     }
+
+private:
+    this(ushort rawValue) @nogc nothrow pure @safe {
+        _rawValue = rawValue;
+    }
+    ushort _rawValue;
 }
 
 /**

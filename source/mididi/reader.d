@@ -139,7 +139,7 @@ if (isInputRange!T && is(ElementType!T : const(ubyte))) {
         //       0  |        ticks-per-quarter-note           |
         //       ---+-----------------------+-----------------+
         //       1  | negative SMPTE format | ticks-per-frame |
-        immutable division = TimeDivision(readInt16());
+        immutable division = TimeDivision.fromRawValue(readInt16());
         if (division.getFormat() == 1) {
             immutable smpteFormat = division.getNegativeSMPTEFormat();
             if (
