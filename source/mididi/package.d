@@ -15,4 +15,5 @@ public {
     import mididi.def;
     import mididi.reader;
     import mididi.types;
+    import mididi.writer;
 }
