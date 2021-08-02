@@ -71,6 +71,110 @@ unittest {
     ]);
 }
 
+/**
+`writeTrackChunk` encodes a track chunk to bytes and `put`s them into `output`.
+
+This is guaranteed to use "running status" to encode consecutive track events
+with the same status byte.
+
+Params:
+    output = the output range object
+    chunk = the track chunk to be encoded
+*/
+void writeTrackChunk(T)(ref T output, ref const TrackChunk chunk)
+if (isOutputRange!(T, ubyte)) {
+    output.write(cast(const(ubyte)[]) "MTrk");
+
+    // unfortunately, we have to write everything to a buffer first so the
+    // length can be written before everything else
+    // TODO: this can be a stack buffer so it uses less heap memory
+    const(ubyte)[] buffer = [];
+    auto bufferWriter = DelegateSink((scope const bytes) {
+        buffer ~= bytes;
+    });
+    ubyte runningStatus = 0;
+    foreach (ref event; chunk.events) {
+        bufferWriter.writeTrackEvent(event, runningStatus);
+        runningStatus = event.statusByte;
+    }
+    output.writeInt32(cast(uint) buffer.length);
+    output.write(buffer);
+}
+
+/// This test demonstrates track chunk writing
+unittest {
+    import mididi.def : MetaEventType;
+
+    const(ubyte)[] result = [];
+    auto range = DelegateSink((scope const bytes) {
+        result ~= bytes;
+    });
+    auto chunk = TrackChunk([
+        TrackEvent(
+            100, // delta time
+            0x93, // note on
+            MIDIEvent(0x93, [0x4C, 0x20]),
+        ),
+        TrackEvent(
+            300,
+            0x93, // note on (same status)
+            MIDIEvent(0x93, [0x4C, 0x00]),
+        ),
+        TrackEvent(
+            400,
+            0xFF,
+            MetaEvent(MetaEventType.endOfTrack, []),
+        ),
+    ]);
+    range.writeTrackChunk(chunk);
+    assert(result == [
+        'M', 'T', 'r', 'k',
+        0, 0, 0, 13,
+        0x64,       0x93, 0x4C, 0x20,
+        0x82, 0x2C,       0x4C, 0x00, // running status
+        0x83, 0x10, 0xFF, 0x2F, 0x00,
+    ]);
+}
+
+/**
+`writeTrackEvent` encodes a single track event to binary data and `put`s it
+into `output`.
+
+If you want to encode using running status (meaning it leaves out the status
+byte if this event's status byte is the same as the previous one), set
+`runningStatus` to the previous event's status byte. Otherwise, set it to 0.
+
+Params:
+    output = the output range to send the bytes to
+    event = the track event that is encoded to bytes
+    runningStatus = the previous event's status byte; set to `0` if you don't
+        care about saving space using running status
+*/
+void writeTrackEvent(T)(ref T output, ref const TrackEvent event, ubyte runningStatus)
+if (isOutputRange!(T, ubyte)) {
+    import mididi.def : getDataLength;
+
+    output.writeVariableInt(event.deltaTime);
+    if (auto midiEvent = event.asMIDIEvent()) {
+        if (event.statusByte != runningStatus) {
+            output.writeInt8(event.statusByte);
+        }
+        output.write(midiEvent.data[0 .. getDataLength(event.statusByte)]);
+    } else if (auto sysExEvent = event.asSysExEvent()) {
+        output.writeInt8(event.statusByte);
+        output.writeVariableInt(cast(uint) sysExEvent.data.length);
+        output.write(sysExEvent.data);
+    } else if (auto metaEvent = event.asMetaEvent()) {
+        assert(event.statusByte == 0xFF);
+        output.writeInt8(0xFF);
+        output.writeInt8(cast(ubyte) metaEvent.type);
+        output.writeVariableInt(cast(uint) metaEvent.data.length);
+        output.write(metaEvent.data);
+    } else {
+        assert(false, "unreachable");
+    }
+}
+
 private:
 
 void writeVariableInt(T)(ref T output, uint x)
@@ -101,6 +205,7 @@ in (x < (1 << 28)) {
     }
 }
 
+// This test checks if variable integer writing works correctly.
 unittest {
     void test(uint x, ubyte[] result) {
         auto local = result;
