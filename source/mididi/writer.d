@@ -1,5 +1,17 @@
 /**
+`mididi.writer` contains functions for encoding MIDI objects to raw bytes.
 
+Currently, the writer is compatible with the standard MIDI format 1.0 and
+forward compatible with newer formats (in which case newer features will be
+ignored, as the specification demands).
+
+The implementation (and some of the documentation) is based on this specification:
+https://www.cs.cmu.edu/~music/cmsip/readings/Standard-MIDI-file-format-updated.pdf
+
+Note:
+    these functions do not always check if the provided data (i.e. the chunks
+    and track events) is actually correct, but if the data comes from
+    `MIDIReader` functions, it should always be complete and valid data
 
 Authors:
     Wout Huynen
@@ -13,6 +25,7 @@ module mididi.writer;
 
 import mididi.types;
 import std.range.primitives : isOutputRange;
+import std.stdio : File;
 
 /**
 A utility output range that outputs bytes to a delegate.
@@ -35,6 +48,101 @@ struct DelegateSink {
 
 private:
     void delegate(scope const(ubyte)[]) _sink;
+}
+
+// the writeMIDIFile overloads are templates so all write* functions are not
+// instantiated if it's never even used
+/**
+`writeMIDIFile` essentially does the same as `writeMIDI` to a range object that
+writes to a `std.stdio.File`, but it is given for convenience.
+
+There are two overloads, one for a `std.stdio.File` object and one for a path
+(which opens the file for you in write mode).
+*/
+void writeMIDIFile()(File file, ref const MIDI midi) {
+    static struct FileOutputRange {
+        void put(ubyte x) {
+            ubyte[1] bytes = [x];
+            writer.put(bytes[]);
+        }
+        void putMultiple(scope const ubyte[] bytes) {
+            writer.put(bytes);
+        }
+
+        typeof(file.lockingBinaryWriter()) writer;
+    }
+    auto output = FileOutputRange(file.lockingBinaryWriter());
+    output.writeMIDI(midi);
+}
+/// ditto
+void writeMIDIFile()(string path, ref const MIDI midi) {
+    auto file = File(path, "w");
+    writeMIDIFile(file, midi);
+    file.close();
+}
+
+/**
+`writeMIDI` encodes a MIDI data object (`mididi.types.MIDI`) to binary data.
+
+The template parameter `T` must be an output range type defining the
+`put(ubyte)` method. In addition, it can define the
+`putMultiple(scope const ubyte[])` method if there is a more efficient method
+to put several bytes at once. (This info applies to all `write*` functions in
+this module.)
+
+Params:
+    T = the output range type
+    midi = the MIDI object that is encoded into `output`
+    output = the output range object
+*/
+void writeMIDI(T)(ref T output, ref const MIDI midi)
+if (isOutputRange!(T, ubyte)) {
+    output.writeHeaderChunk(midi.headerChunk);
+    assert(midi.headerChunk.nTracks == midi.trackChunks.length,
+        "the header's nTracks must be equal to the number of track chunks");
+    foreach (ref track; midi.trackChunks) {
+        output.writeTrackChunk(track);
+    }
+}
+
+///
+unittest {
+    import mididi.def : MetaEventType, SystemMessageType, TrackFormat;
+
+    const(ubyte)[] result;
+    auto sink = DelegateSink((scope const bytes) {
+        result ~= bytes;
+    });
+    auto midi = MIDI(
+        HeaderChunk(TrackFormat.single, 1, TimeDivision.fromFormat0(1000)),
+        [
+            TrackChunk([
+                TrackEvent(
+                    0xFF,
+                    cast(ubyte) SystemMessageType.songSelect,
+                    MIDIEvent(cast(ubyte) SystemMessageType.songSelect, [123, 0]),
+                ),
+                TrackEvent(
+                    0x0F,
+                    0xFF,
+                    MetaEvent(MetaEventType.endOfTrack, []),
+                ),
+            ]),
+        ]
+    );
+    sink.writeMIDI(midi);
+    assert(result == cast(const(ubyte)[]) [
+        'M', 'T', 'h', 'd',
+        0, 0, 0, 6,
+        0, 0,
+        0, 1,
+        0x03, 0xE8,
+
+        'M', 'T', 'r', 'k',
+        0, 0, 0, 8,
+        0x81, 0x7F, cast(ubyte) SystemMessageType.songSelect, 123,
+        0x0F,       0xFF, cast(ubyte) MetaEventType.endOfTrack, 0x00,
+    ]);
 }
 
 /**
