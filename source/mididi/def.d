@@ -88,10 +88,11 @@ bool isSystemMessage(ubyte statusByte) @nogc nothrow pure @safe {
 Returns:
     how many data bytes should be read for the message with status byte
     `statusByte`
-Throws:
-    `Exception` if `statusByte` is not a MIDI event
+Preconditions:
+    `statusByte` must be from a MIDI event
 */
-size_t getDataLength(ubyte statusByte) pure @safe {
+size_t getDataLength(ubyte statusByte) @nogc nothrow pure @safe
+in (isMIDIEvent(statusByte)) {
     import std.conv : text;
 
     if (isChannelMessage(statusByte)) {
@@ -128,10 +129,7 @@ size_t getDataLength(ubyte statusByte) pure @safe {
         }
     }
 
-    throw new Exception(text(
-        "Invalid channel message type for status byte ",
-        statusByte,
-    ));
+    assert(false, "unreachable");
 }
 
 /**
