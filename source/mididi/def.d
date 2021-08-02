@@ -54,7 +54,9 @@ See also:
     `mididi.types.SysExEvent` and `mididi.types.MetaEvent`.
 */
 bool isMIDIEvent(ubyte statusByte) @nogc nothrow pure @safe {
-    return statusByte != 0xF0 && statusByte != 0xF7 && statusByte != 0xFF;
+    // a status byte for an event always has to start with a 1
+    return statusByte >= 0x80 && statusByte != 0xF0 && statusByte != 0xF7 &&
+        statusByte != 0xFF;
 }
 /// ditto
 bool isSysExEvent(ubyte statusByte) @nogc nothrow pure @safe {
