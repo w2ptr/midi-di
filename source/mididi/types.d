@@ -304,6 +304,45 @@ struct TrackEvent {
         return null;
     }
 
+    /// Equality and hash methods.
+    bool opEquals(ref const TrackEvent rhs) const @nogc nothrow pure @safe {
+        if (_statusByte != rhs._statusByte || deltaTime != rhs.deltaTime) {
+            return false;
+        }
+
+        if (auto midiEvent = asMIDIEvent()) {
+            if (auto r = rhs.asMIDIEvent()) {
+                return *midiEvent == *r;
+            }
+            return false;
+        } else if (auto sysExEvent = asSysExEvent()) {
+            if (auto r = rhs.asSysExEvent()) {
+                return *sysExEvent == *r;
+            }
+            return false;
+        } else if (auto metaEvent = asMetaEvent()) {
+            if (auto r = rhs.asMetaEvent()) {
+                return *metaEvent == *r;
+            }
+            return false;
+        } else {
+            assert(false, "unreachable");
+        }
+    }
+    /// ditto
+    size_t toHash() const @nogc nothrow pure @safe {
+        immutable hash1 = hashOf(deltaTime);
+        if (auto midiEvent = asMIDIEvent()) {
+            return hashOf(*midiEvent, hash1);
+        } else if (auto sysExEvent = asSysExEvent()) {
+            return hashOf(*sysExEvent, hash1);
+        } else if (auto metaEvent = asMetaEvent()) {
+            return hashOf(*metaEvent, hash1);
+        } else {
+            assert(false, "unreachable");
+        }
+    }
+
 private:
     ubyte _statusByte;
     union {
@@ -399,6 +438,20 @@ struct MIDIEvent {
     SystemMessageType getSystemMessageType() const @nogc nothrow pure @safe
     in (this.isSystemMessage()) {
         return cast(SystemMessageType) statusByte;
+    }
+
+    /// Equality and hash methods.
+    bool opEquals(ref const MIDIEvent rhs) const @nogc nothrow pure @safe {
+        if (statusByte != rhs.statusByte) {
+            return false;
+        }
+        immutable len = getDataLength(statusByte);
+        return data[0 .. len] == rhs.data[0 .. len];
+    }
+    /// ditto
+    size_t toHash() const @nogc nothrow pure @safe {
+        immutable len = getDataLength(statusByte);
+        return hashOf(statusByte, hashOf(data[0 .. len]));
     }
 }
 
