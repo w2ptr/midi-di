@@ -227,35 +227,24 @@ are syntactically MIDI events, but system exclusive events are not MIDI events.
 */
 struct TrackEvent {
     /**
-    Preconditions:
-        `statusByte` must be a valid status byte for a MIDI event, and not for
-        a system exclusive event
+    These constructors initialize the object with a delta time and an event.
     */
-    this(int deltaTime, ubyte statusByte, MIDIEvent event) @nogc nothrow pure @trusted
-    in (isMIDIEvent(statusByte)) {
+    this(int deltaTime, MIDIEvent event) @nogc nothrow pure @trusted {
         this.deltaTime = deltaTime;
-        _statusByte = statusByte;
+        _statusByte = event.statusByte;
         _midiEvent = event;
     }
-    /**
-    Preconditions:
-        `statusByte` must be a valid status byte for a system exclusive event
-    */
-    this(int deltaTime, ubyte statusByte, SysExEvent event) @nogc nothrow pure @trusted
-    in (isSysExEvent(statusByte)) {
+    /// ditto
+    this(int deltaTime, SysExEvent event) @nogc nothrow pure @trusted
+    in (isSysExEvent(cast(ubyte) event.type)) {
         this.deltaTime = deltaTime;
-        _statusByte = statusByte;
+        _statusByte = cast(ubyte) event.type;
         _sysExEvent = event;
     }
-    /**
-    Preconditions:
-        `statusByte` must be a MIDI event status byte (meaning its value must
-        be `0xFF`)
-    */
-    this(int deltaTime, ubyte statusByte, MetaEvent event) @nogc nothrow pure @trusted
-    in (isMetaEvent(statusByte)) {
+    /// ditto
+    this(int deltaTime, MetaEvent event) @nogc nothrow pure @trusted {
         this.deltaTime = deltaTime;
-        _statusByte = statusByte;
+        _statusByte = 0xFF;
         _metaEvent = event;
     }
 
@@ -357,7 +346,6 @@ private:
     auto statusByte = cast(ubyte) ((ChannelMessageType.noteOn << 4) | 0x7);
     auto event = TrackEvent(
         200,
-        statusByte,
         MIDIEvent(statusByte, [0x0F, 0x00]),
     );
 

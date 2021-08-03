@@ -119,12 +119,10 @@ unittest {
             TrackChunk([
                 TrackEvent(
                     0xFF,
-                    cast(ubyte) SystemMessageType.songSelect,
                     MIDIEvent(cast(ubyte) SystemMessageType.songSelect, [123, 0]),
                 ),
                 TrackEvent(
                     0x0F,
-                    0xFF,
                     MetaEvent(MetaEventType.endOfTrack, []),
                 ),
             ]),
@@ -220,17 +218,16 @@ unittest {
     auto chunk = TrackChunk([
         TrackEvent(
             100, // delta time
-            0x93, // note on
+            // 0x93 = note on
             MIDIEvent(0x93, [0x4C, 0x20]),
         ),
         TrackEvent(
             300,
-            0x93, // note on (same status)
+            // 0x93 = note on (same status)
             MIDIEvent(0x93, [0x4C, 0x00]),
         ),
         TrackEvent(
             400,
-            0xFF,
             MetaEvent(MetaEventType.endOfTrack, []),
         ),
     ]);

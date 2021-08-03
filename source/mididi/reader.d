@@ -252,7 +252,6 @@ if (isInputRange!T && is(ElementType!T : const(ubyte))) {
             data[0 .. dataLength] = varData[];
             return TrackEvent(
                 deltaTime,
-                statusByte,
                 MIDIEvent(statusByte, data),
             );
         } else if (isSysExEvent(statusByte)) {
@@ -280,7 +279,6 @@ if (isInputRange!T && is(ElementType!T : const(ubyte))) {
 
             return TrackEvent(
                 deltaTime,
-                statusByte,
                 SysExEvent(type, data),
             );
         } else if (isMetaEvent(statusByte)) {
@@ -292,7 +290,6 @@ if (isInputRange!T && is(ElementType!T : const(ubyte))) {
 
             return TrackEvent(
                 deltaTime,
-                0xFF,
                 MetaEvent(metaEventType, data),
             );
         } else {
