@@ -250,6 +250,8 @@ struct TrackEvent {
 
     /**
     `deltaTime` is the time between the previous event and this event.
+
+    Its meaning depends on the time division in the header chunk.
     */
     int deltaTime;
 

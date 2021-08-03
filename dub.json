@@ -3,7 +3,7 @@
 		"Wout Huynen"
 	],
 	"copyright": "Copyright © 2021, Wout Huynen",
-	"description": "Library for reading MIDI files, written in D",
+	"description": "Library for reading and writing MIDI data",
 	"license": "BSL-1.0",
 	"name": "midi-di"
 }
