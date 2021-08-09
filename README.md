@@ -27,7 +27,7 @@ void main(string[] args) {
 
 ## Documentation
 
-See [w2ptr.github.io/docs/midi-di](https://w2ptr.github.io/docs/midi-di) for documentation.
+See [w2ptr.github.io/docs/midi-di/latest](https://w2ptr.github.io/docs/midi-di/latest) for the latest documentation.
 
 ## Modules
 

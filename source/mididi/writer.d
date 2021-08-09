@@ -14,7 +14,7 @@ Note:
     `MIDIReader` functions, it should always be complete and valid data
 
 Authors:
-    Wout Huynen
+    https://github.com/w2ptr
 */
 module mididi.writer;
 

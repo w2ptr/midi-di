@@ -2,7 +2,7 @@
 
 
 Authors:
-    Wout Huynen
+    https://github.com/w2ptr
 */
 module mididi;
 

@@ -9,7 +9,7 @@ The implementation (and some of the documentation) is based on this specificatio
 https://www.cs.cmu.edu/~music/cmsip/readings/Standard-MIDI-file-format-updated.pdf
 
 Authors:
-    Wout Huynen
+    https://github.com/w2ptr
 */
 module mididi.reader;
 
